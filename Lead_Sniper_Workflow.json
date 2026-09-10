@@ -1,0 +1,294 @@
+{
+  "name": "Lead Sniper - GitHub High-Value Star Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Poll every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/tiangolo/fastapi/stargazers",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "2",
+      "name": "Get Stargazers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $getWorkflowStaticData('global');\nstate.seen ??= {};\nconst out = [];\nfor (const item of $input.all()) {\n  const star = item.json;\n  const login = star.user?.login ?? star.login;\n  if (!login) continue;\n  const key = String(star.user?.id ?? star.id ?? login);\n  if (!state.seen[key]) {\n    state.seen[key] = new Date().toISOString();\n    out.push({json:{login, star_id:key}});\n  }\n}\nreturn out;"
+      },
+      "id": "3",
+      "name": "Find New Stars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/users/{{$json.login}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "4",
+      "name": "Fetch GitHub Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "followers",
+              "leftValue": "={{$json.followers}}",
+              "rightValue": 100,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "repos",
+              "leftValue": "={{$json.public_repos}}",
+              "rightValue": 50,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "High-Value Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write exactly one sentence as a concise sales pitch for why our team should reach out to this GitHub user. Use the user's bio and company. Be specific and professional; do not invent facts. Name: {{$json.name || $json.login}} | Company: {{$json.company || 'Not provided'}} | Bio: {{$json.bio || 'Not provided'}}",
+        "options": {}
+      },
+      "id": "6",
+      "name": "AI Sales Pitch",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        230,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "gpt-4o-mini",
+        "options": {}
+      },
+      "id": "7",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        230,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.DISCORD_WEBHOOK_URL}}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{JSON.stringify({content:`\ud83d\udd25 High-Value GitHub Lead\\n\\nName: ${$('Fetch GitHub Profile').item.json.name || $('Fetch GitHub Profile').item.json.login}\\nGitHub: https://github.com/${$('Fetch GitHub Profile').item.json.login}\\nFollowers: ${$('Fetch GitHub Profile').item.json.followers}\\nPublic repos: ${$('Fetch GitHub Profile').item.json.public_repos}\\nCompany: ${$('Fetch GitHub Profile').item.json.company || 'Not provided'}\\nBio: ${$('Fetch GitHub Profile').item.json.bio || 'Not provided'}\\n\\nAI Sales Pitch: ${$json.text || $json.output || 'No pitch generated'}`})}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "8",
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        -120
+      ]
+    }
+  ],
+  "connections": {
+    "Poll every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Stargazers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Stargazers": {
+      "main": [
+        [
+          {
+            "node": "Find New Stars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find New Stars": {
+      "main": [
+        [
+          {
+            "node": "Fetch GitHub Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch GitHub Profile": {
+      "main": [
+        [
+          {
+            "node": "High-Value Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High-Value Lead?": {
+      "main": [
+        [
+          {
+            "node": "AI Sales Pitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Sales Pitch": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Sales Pitch",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "lead-sniper-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
